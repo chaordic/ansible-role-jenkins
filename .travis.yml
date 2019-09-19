@@ -1,113 +1,43 @@
 ---
+language: python
 services: docker
 
 env:
-  # tests/test.yml
-  - distro: centos7
-    init: /usr/lib/systemd/systemd
-    run_opts: "--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
-    site: test.yml
-    prefix: ''
-    http_port: 8080
-  # - distro: fedora24
-  #   init: /usr/lib/systemd/systemd
-  #   run_opts: "--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
-  #   site: test.yml
-  #   prefix: ''
-  #   http_port: 8080
-  - distro: ubuntu1404
-    init: /sbin/init
-    run_opts: ""
-    site: test.yml
-    prefix: ''
-    http_port: 8080
-  - distro: ubuntu1204
-    init: /sbin/init
-    run_opts: ""
-    site: test.yml
-    prefix: ''
-    http_port: 8080
+  global:
+    - ROLE_NAME: jenkins
+  matrix:
+    # Test defaults.
+    - MOLECULE_DISTRO: centos7
+    - MOLECULE_DISTRO: ubuntu1804
+    - MOLECULE_DISTRO: ubuntu1604
+    - MOLECULE_DISTRO: debian9
 
-  # tests/test-http-port.yml
-  - distro: ubuntu1404
-    init: /sbin/init
-    run_opts: ""
-    site: test-http-port.yml
-    prefix: ''
-    http_port: 8081
+    # Test other role features.
+    - MOLECULE_DISTRO: ubuntu1804
+      MOLECULE_PLAYBOOK: playbook-http-port.yml
 
-  # tests/test-prefix.yml
-  - distro: ubuntu1404
-    init: /sbin/init
-    run_opts: ""
-    site: test-prefix.yml
-    prefix: jenkins
-    http_port: 8080
+    - MOLECULE_DISTRO: ubuntu1804
+      MOLECULE_PLAYBOOK: playbook-prefix.yml
 
-  # tests/test-jenkins-version.yml
-  - distro: centos7
-    init: /usr/lib/systemd/systemd
-    run_opts: "--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
-    site: test-jenkins-version.yml
-    prefix: ''
-    http_port: 8080
-  - distro: ubuntu1404
-    init: /sbin/init
-    run_opts: ""
-    site: test-jenkins-version.yml
-    prefix: ''
-    http_port: 8080
+    - MOLECULE_DISTRO: centos7
+      MOLECULE_PLAYBOOK: playbook-jenkins-version.yml
 
-  # tests/test-plugins.yml
-  - distro: ubuntu1404
-    init: /sbin/init
-    run_opts: ""
-    site: test-plugins.yml
-    prefix: ''
-    http_port: 8080
+    - MOLECULE_DISTRO: ubuntu1804
+      MOLECULE_PLAYBOOK: playbook-plugins-with-home.yml
 
-  # tests/test-plugins-with-pinning.yml
-  - distro: ubuntu1404
-    init: /sbin/init
-    run_opts: ""
-    site: test-plugins-with-pinning.yml
-    prefix: ''
-    http_port: 8080
+install:
+  # Install test dependencies.
+  - pip install molecule docker
 
-before_install:
-  # Pull container
-  - 'docker pull geerlingguy/docker-${distro}-ansible:latest'
+before_script:
+  # Use actual Ansible Galaxy role name for the project directory.
+  - cd ../
+  - mv ansible-role-$ROLE_NAME geerlingguy.$ROLE_NAME
+  - cd geerlingguy.$ROLE_NAME
 
 script:
-  - container_id=$(mktemp)
-  # Run container in detached state.
-  - 'docker run --detach --volume="${PWD}":/etc/ansible/roles/role_under_test:ro ${run_opts} geerlingguy/docker-${distro}-ansible:latest "${init}" > "${container_id}"'
-
-  # Install dependencies.
-  - 'docker exec "$(cat ${container_id})" ansible-galaxy install -r /etc/ansible/roles/role_under_test/tests/requirements.yml'
-
-  # Ansible syntax check.
-  - 'docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/role_under_test/tests/$site --syntax-check'
-
-  # Test role.
-  - 'docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/role_under_test/tests/$site'
-
-  # Test role idempotence.
-  - idempotence=$(mktemp)
-  - docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/roles/role_under_test/tests/$site | tee -a ${idempotence}
-  - >
-    tail ${idempotence}
-    | grep -q 'changed=0.*failed=0'
-    && (echo 'Idempotence test: pass' && exit 0)
-    || (echo 'Idempotence test: fail' && exit 1)
-
-  # Make sure Jenkins is running.
-  - 'docker exec --tty "$(cat ${container_id})" env TERM=xterm curl http://localhost:$http_port/$prefix'
-
-after_failure:
-  # Check what happened on systemd systems.
-  - 'docker exec --tty "$(cat ${container_id})" env TERM=xterm systemctl -l status jenkins.service'
-  - 'docker exec --tty "$(cat ${container_id})" env TERM=xterm journalctl -xe --no-pager'
+  # Run tests.
+  - molecule test
 
 notifications:
   webhooks: https://galaxy.ansible.com/api/v1/notifications/
